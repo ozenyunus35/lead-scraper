@@ -1,0 +1,68 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Lead Scraper: live results</title>
+  <meta name="description" content="A polite web scraper that collects business leads into clean, de-duplicated CSV and Excel files. Re-runs every day with GitHub Actions." />
+  <meta name="color-scheme" content="light dark" />
+  <link rel="stylesheet" href="style.css" />
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='7' fill='%231F3A5F'/%3E%3Ccircle cx='14' cy='14' r='6' fill='none' stroke='%235EEAD4' stroke-width='2.5'/%3E%3Cpath d='M19 19l6 6' stroke='%235EEAD4' stroke-width='2.5' stroke-linecap='round'/%3E%3C/svg%3E" />
+</head>
+<body>
+  <header class="top">
+    <div class="wrap top-inner">
+      <span class="brand"><span class="logo" aria-hidden="true"></span>Lead Scraper</span>
+      <span class="run" id="run-badge"><span class="dot" aria-hidden="true"></span><span id="run-text">Loading latest run…</span></span>
+    </div>
+  </header>
+
+  <main class="wrap">
+    <section class="hero">
+      <h1>Business leads, scraped and cleaned automatically</h1>
+      <p>This scraper crawls a business directory page by page, opens every listing, normalises phone numbers, merges duplicate businesses and exports a clean CSV and Excel file. It runs again every day on its own, and this page shows the latest result.</p>
+    </section>
+
+    <div class="tabs" role="tablist" aria-label="Datasets">
+      <button role="tab" id="tab-directory" aria-selected="true" aria-controls="panel" data-set="directory">Business leads</button>
+      <button role="tab" id="tab-books" aria-selected="false" aria-controls="panel" data-set="books">Books (sandbox)</button>
+    </div>
+
+    <section class="panel" id="panel" role="tabpanel">
+      <p class="source" id="source"></p>
+      <div class="stats" id="stats"></div>
+      <div class="toolbar">
+        <label class="search">
+          <span class="sr-only">Filter rows</span>
+          <input type="search" id="q" placeholder="Filter by name, city, category…" />
+        </label>
+        <div class="downloads" id="downloads"></div>
+      </div>
+      <div class="table-box" tabindex="0" aria-label="Scraped records">
+        <table id="table"></table>
+      </div>
+      <p class="note" id="note"></p>
+    </section>
+
+    <section class="how">
+      <h2>What happens on every run</h2>
+      <ol>
+        <li><b>Crawl politely.</b> Checks robots.txt, waits between requests, retries with back-off, identifies itself with a user agent.</li>
+        <li><b>Follow the structure.</b> Category pages → pagination → each business page, collecting every listing once.</li>
+        <li><b>Clean.</b> Phone numbers in any format become one standard (E.164); addresses split into street, city, state, ZIP.</li>
+        <li><b>De-duplicate.</b> The same business listed twice, even under a slightly different name, is merged by phone number, keeping the most complete record and all its categories.</li>
+        <li><b>Export.</b> CSV, a formatted Excel workbook and JSON, published here by a scheduled GitHub Actions job.</li>
+      </ol>
+      <p class="fine">The business directory is a <a href="directory/index.html">demo site</a> with invented businesses (phone numbers in the fictional 555-01xx range), built for this showcase. The books dataset comes from <a href="https://books.toscrape.com/">books.toscrape.com</a>, a public sandbox made for scraping practice.</p>
+    </section>
+  </main>
+
+  <footer class="foot">
+    <div class="wrap">
+      Built by <a href="https://ozenyunus35.github.io/yunus-ozen-portfolio/">Yunus Ozen</a>. Need leads from a specific directory, marketplace or map listing, delivered once or on a schedule? That is the kind of work I do.
+      · <a href="https://github.com/ozenyunus35/lead-scraper">Source on GitHub</a>
+    </div>
+  </footer>
+  <script src="app.js"></script>
+</body>
+</html>

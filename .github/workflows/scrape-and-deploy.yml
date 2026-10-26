@@ -1,0 +1,53 @@
+name: Scrape and publish
+
+on:
+  push:
+    branches: [main]
+  schedule:
+    - cron: "17 6 * * *" # every day at 06:17 UTC
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages
+  cancel-in-progress: false
+
+jobs:
+  scrape:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+      - run: pip install -r requirements.txt
+      - run: python -m pytest -q
+      - name: Build the demo directory
+        run: python demo_directory/generate.py site/directory
+      - name: Scrape the directory
+        run: |
+          python -m http.server 8000 --directory site > /dev/null 2>&1 &
+          sleep 2
+          python -m scraper directory \
+            --url http://localhost:8000/directory/index.html \
+            --report-url https://ozenyunus35.github.io/lead-scraper/directory/index.html \
+            --delay 0.2 --out site/data
+      - name: Scrape books.toscrape.com (first 5 pages, 1 request per second)
+        run: python -m scraper books --max-pages 5 --delay 1 --out site/data
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: site
+  deploy:
+    needs: scrape
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - id: deployment
+        uses: actions/deploy-pages@v4
