@@ -14,6 +14,8 @@ A polite web scraper that turns a business directory into a clean, de-duplicated
 - **Merges duplicates:** the same business listed twice, even under a slightly different name, is merged by phone number. The most complete record is kept and all of its categories are combined.
 - **Exports** CSV (UTF-8, opens correctly in Excel), a formatted Excel workbook (frozen header, filters, clickable links) and JSON.
 - **Runs on a schedule:** a GitHub Actions job scrapes every morning and publishes the fresh results to the page above.
+- **Shows its work:** the results page lists what the last run did (pages crawled, listings parsed, phones
+  normalised, duplicates merged), how complete each field is, and the full record behind every row.
 
 | Results page | Demo directory being scraped |
 | --- | --- |
@@ -35,7 +37,8 @@ python -m scraper books --max-pages 5 --delay 1 --out data
 # the demo directory (published copy)
 python -m scraper directory --out data
 
-python -m pytest -q
+python -m playwright install chromium webkit  # once, for the browser tests
+python -m pytest -q  # scraper tests + results page on desktop Chrome, Safari, iPhone and Android
 ```
 
 Each run writes `data/<site>.csv`, `data/<site>.xlsx` and `data/<site>.json` and prints a short summary.

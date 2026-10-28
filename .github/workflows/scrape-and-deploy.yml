@@ -20,13 +20,14 @@ jobs:
   scrape:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
         with:
           python-version: "3.12"
           cache: pip
       - run: pip install -r requirements.txt
-      - run: python -m pytest -q
+      - run: python -m playwright install --with-deps chromium webkit
+      - run: python -m pytest -q # scraper tests + browser tests of the results page
       - name: Build the demo directory
         run: python demo_directory/generate.py site/directory
       - name: Scrape the directory
@@ -39,7 +40,7 @@ jobs:
             --delay 0.2 --out site/data
       - name: Scrape books.toscrape.com (first 5 pages, 1 request per second)
         run: python -m scraper books --max-pages 5 --delay 1 --out site/data
-      - uses: actions/upload-pages-artifact@v3
+      - uses: actions/upload-pages-artifact@v5
         with:
           path: site
   deploy:
@@ -50,4 +51,4 @@ jobs:
       url: ${{ steps.deployment.outputs.page_url }}
     steps:
       - id: deployment
-        uses: actions/deploy-pages@v4
+        uses: actions/deploy-pages@v5
