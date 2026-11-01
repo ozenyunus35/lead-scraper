@@ -71,7 +71,7 @@ def page(browser_ctx, base_url):
 def test_shows_pipeline_and_records(page):
     expect(page.get_by_role("heading", level=1)).to_have_text("Business leads")
     pipeline = page.get_by_role("list", name="What the last run did")
-    for step in ("Crawl", "Parse", "Clean", "Merge", "Export"):
+    for step in ("Crawl", "Clean", "Merge", "Enrich", "Score"):
         expect(pipeline).to_contain_text(step)
     rows = page.locator("#table tbody tr")
     total = rows.count()
@@ -126,3 +126,28 @@ def test_books_dataset_and_theme(page):
     page.reload()
     assert page.evaluate("document.documentElement.classList.contains('dark')") is not dark
     assert page.evaluate("document.documentElement.scrollWidth - document.documentElement.clientWidth") <= 0
+
+
+def test_lead_filters_sorting_changes_and_crm_export(page):
+    total = page.locator("#table tbody tr").count()
+    page.get_by_label("Leads").select_option("personal")
+    rows = page.locator("#table tbody tr")
+    assert 0 < rows.count() < total
+    for i in range(rows.count()):
+        expect(rows.nth(i)).to_contain_text("Named person")
+    page.get_by_label("Leads").select_option("")
+    page.get_by_label("Sort").select_option("score")
+    scores = [int(t) for t in page.locator("#table tbody tr td .score").all_inner_texts()]
+    assert scores == sorted(scores, reverse=True)
+    # The "since the last run" card filters to the new businesses.
+    page.locator("#changes [data-lead=new]").click()
+    expect(page.get_by_label("Leads")).to_have_value("new")
+    for i in range(page.locator("#table tbody tr").count()):
+        expect(page.locator("#table tbody tr").nth(i).locator(".tag.ch-new")).to_be_visible()
+    # The CRM file holds exactly the filtered leads, in HubSpot's columns.
+    with page.expect_download() as d:
+        page.get_by_role("button", name="CRM import (filtered)").click()
+    text = Path(d.value.path()).read_text(encoding="utf-8-sig")
+    lines = text.strip().splitlines()
+    assert lines[0].startswith("Company name,Company Domain Name,Phone Number,Email")
+    assert len(lines) - 1 == page.locator("#table tbody tr").count()

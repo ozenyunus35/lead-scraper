@@ -4,6 +4,14 @@ Everything here is invented: phone numbers use the reserved 555-01xx range and
 websites use the reserved .example domain. The data is deliberately messy, like
 real directories: mixed phone formats, missing websites, and businesses listed
 under two categories (duplicates the scraper has to merge).
+
+Each business with a website also gets one (under web/<domain>/): a home page, a
+contact page and sometimes a team page, written the many ways small businesses
+write them, with the traps a contact finder meets on real sites.
+
+The directory changes from day to day like a real one: every day since START one
+business closes, one opens and one changes its details, so a daily run has news.
+Usage: python demo_directory/generate.py [OUT] [YYYY-MM-DD]
 """
 from __future__ import annotations
 
@@ -11,10 +19,13 @@ import html
 import random
 import shutil
 import sys
+from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
 
 rnd = random.Random(2026)
 OUT = Path(sys.argv[1] if len(sys.argv) > 1 else "site/directory")
+TODAY = date.fromisoformat(sys.argv[2]) if len(sys.argv) > 2 else datetime.now(timezone.utc).date()
+START = date(2026, 11, 1)  # the directory as first published; each later day brings a few changes
 PER_PAGE = 10
 
 CATEGORIES = {
@@ -56,52 +67,74 @@ def phone_variants(area: str, line: str) -> str:
     ])
 
 
+def new_business(r: random.Random, slug_cat: str, seen: set[str], used_numbers: set[tuple[str, str]]) -> dict:
+    label, suffixes = CATEGORIES[slug_cat]
+    for attempt in range(200):
+        name = f"{r.choice(NAMES)} {r.choice(suffixes)}" + ("" if attempt < 100 else f" {r.choice(['North', 'West', 'Two', 'East'])}")
+        if name not in seen:
+            seen.add(name)
+            break
+    city, state, area, zips, streets = r.choice(CITIES)
+    while True:  # every business gets its own number
+        line = f"{r.randint(0, 99):02d}"
+        if (area, line) not in used_numbers:
+            used_numbers.add((area, line))
+            break
+    slug = name.lower().replace("&", "and").replace(".", "").replace(" ", "-")
+    domain = slug.replace("-", "") + ".example"
+    return {
+            "slug": slug,
+            "name": name,
+            "categories": [slug_cat],
+            "street": f"{r.randint(10, 4999)} {r.choice(streets)}" + (f", Suite {r.randint(100, 450)}" if r.random() < 0.25 else ""),
+            "city": city,
+            "state": state,
+            "zip": str(r.choice(zips)),
+            "area": area,
+            "line": line,
+            "website": f"https://www.{domain}" if r.random() < 0.8 else "",
+            "email": f"hello@{domain}" if r.random() < 0.55 else "",
+            "rating": round(r.uniform(3.2, 5.0), 1),
+            "reviews": r.randint(4, 640) if r.random() < 0.85 else r.randint(1000, 2600),
+    }
+
+
 def make_businesses() -> list[dict]:
     seen: set[str] = set()
     out = []
     used_numbers: set[tuple[str, str]] = set()
     for i in range(138):
-        slug_cat = list(CATEGORIES)[i % len(CATEGORIES)]
-        label, suffixes = CATEGORIES[slug_cat]
-        while True:
-            name = f"{rnd.choice(NAMES)} {rnd.choice(suffixes)}"
-            if name not in seen:
-                seen.add(name)
-                break
-        city, state, area, zips, streets = rnd.choice(CITIES)
-        while True:  # every business gets its own number
-            line = f"{rnd.randint(0, 99):02d}"
-            if (area, line) not in used_numbers:
-                used_numbers.add((area, line))
-                break
-        slug = name.lower().replace("&", "and").replace(".", "").replace(" ", "-")
-        domain = slug.replace("-", "") + ".example"
-        out.append({
-            "slug": slug,
-            "name": name,
-            "categories": [slug_cat],
-            "street": f"{rnd.randint(10, 4999)} {rnd.choice(streets)}" + (f", Suite {rnd.randint(100, 450)}" if rnd.random() < 0.25 else ""),
-            "city": city,
-            "state": state,
-            "zip": str(rnd.choice(zips)),
-            "area": area,
-            "line": line,
-            "website": f"https://www.{domain}" if rnd.random() < 0.8 else "",
-            "email": f"hello@{domain}" if rnd.random() < 0.55 else "",
-            "rating": round(rnd.uniform(3.2, 5.0), 1),
-            "reviews": rnd.randint(4, 640) if rnd.random() < 0.85 else rnd.randint(1000, 2600),
-        })
+        out.append(new_business(rnd, list(CATEGORIES)[i % len(CATEGORIES)], seen, used_numbers))
     # A few businesses are listed under a second category that fits what they do.
     for b in rnd.sample([b for b in out if b["categories"][0] in RELATED], 6):
         b["categories"].append(RELATED[b["categories"][0]])
+    # The days since the directory was first published: one closes, one opens, one changes.
+    for day in range((TODAY - START).days):
+        r = random.Random(f"day-{START + timedelta(days=day + 1)}")
+        out.remove(r.choice(out))
+        out.append(new_business(r, r.choice(list(CATEGORIES)), seen, used_numbers))
+        b = r.choice(out)
+        change = r.choice(["phone", "rating", "address"])
+        if change == "phone":  # a new number
+            while True:
+                line = f"{r.randint(0, 99):02d}"
+                if (b["area"], line) not in used_numbers:
+                    used_numbers.add((b["area"], line))
+                    b["line"] = line
+                    break
+        elif change == "rating":
+            b["reviews"] += r.randint(3, 40)
+            b["rating"] = round(min(5.0, max(3.0, b["rating"] + r.choice([-0.1, 0.1, 0.2]))), 1)
+        else:  # moved down the road
+            b["street"] = f"{r.randint(10, 4999)} " + b["street"].split(" ", 1)[1].split(",")[0]
     # And some are listed twice as separate entries, with a slightly different name
     # and their phone written another way. Same phone number = same business.
-    for b in rnd.sample(out[:120], 12):
+    for b in random.Random(f"dups-{TODAY}").sample(out, 12):
         dup = dict(b)
         dup["name"] = b["name"] + rnd.choice([" LLC", " Inc.", " (Main Office)", " & Co"])
         dup["slug"] = b["slug"] + "-listing-2"
         dup["categories"] = list(b["categories"])  # the same business, entered again in its own category
-        dup["website"] = "" if rnd.random() < 0.5 else b["website"]
+        dup["website"] = "" if len(b["slug"]) % 2 else b["website"]
         dup["email"] = ""
         dup["no_phone"] = rnd.random() < 0.4  # some copies leave the phone out: name and ZIP still match
         out.append(dup)
@@ -123,6 +156,69 @@ header{{border-bottom:3px double #b8860b;margin-bottom:16px}} header a{{color:#2
 {body}
 <footer>Fictional data · for scraping demos only</footer>
 </body></html>"""
+
+
+FIRST = ["Maria", "James", "Aiko", "Daniel", "Priya", "Lucas", "Sofia", "Omar", "Grace", "Mateo", "Hannah", "Wei"]
+LAST = ["Lopez", "Chen", "Patel", "Nguyen", "Okafor", "Russo", "Kim", "Silva", "Novak", "Haddad", "Brooks", "Tanaka"]
+SITE = """<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<title>{title}</title><link rel="icon" href="data:,">
+<style>body{{font-family:system-ui,sans-serif;max-width:760px;margin:0 auto;padding:16px;color:#1f2937}}
+nav a{{margin-right:14px}} footer{{margin-top:32px;border-top:1px solid #ddd;padding-top:12px;font-size:14px;color:#555}}
+.demo{{background:#eef2ff;padding:6px 10px;font-size:13px}}</style></head><body>
+<p class="demo">Fictional demo website for the Lead Scraper project.</p>
+<header><strong>{name}</strong><nav>{nav}</nav></header>
+<main>{body}</main><footer>{footer}</footer></body></html>"""
+
+
+def website(b: dict) -> dict[str, str]:
+    """The business's own site: pages by file name. Written the many ways small businesses
+    do it, with the traps a contact finder meets: obfuscated addresses, an image named like
+    an e-mail, a template placeholder, a contact form with no address at all, a dead site."""
+    r = random.Random("site-" + b["website"])
+    domain = b["website"].removeprefix("https://www.")
+    handle = domain.removesuffix(".example")
+    kind = r.choices(["mailto", "footer-text", "obfuscated", "form-only", "team", "dead", "parked"], [30, 15, 12, 10, 18, 8, 7])[0]
+    if kind == "dead":
+        return {}  # the link in the directory leads nowhere: 404
+    if kind == "parked":
+        return {"index.html": SITE.format(title=domain, name=domain, nav="", footer="", body="<h1>This domain is parked</h1><p>Interested in this domain? Contact the registrar.</p>")}
+    first, last = r.choice(FIRST), r.choice(LAST)
+    personal = f"{first.lower()}.{last.lower()}@{domain}"
+    role = r.choice(["info", "hello", "office", "contact", "bookings"]) + "@" + domain
+    socials = []
+    for net, url in [("Instagram", f"https://www.instagram.com/{handle}/"), ("Facebook", f"https://www.facebook.com/{handle}"),
+                     ("LinkedIn", f"https://www.linkedin.com/company/{handle}/"), ("X", f"https://x.com/{handle}")]:
+        if r.random() < 0.55:
+            socials.append(f'<a href="{url}" aria-label="{net}">{net}</a>')
+    footer = " · ".join(socials) + f'<br>© 2026 {html.escape(b["name"])} · <img src="img/logo@2x.png" alt="" width="1" height="1">'
+    if kind == "footer-text":
+        footer += f"<br>Questions? Write to {role}"
+    if kind == "obfuscated":
+        footer += f"<br>Email: {role.replace('@', ' [at] ').replace('.example', ' [dot] example')}"
+    contact_link = r.choice(["Contact", "Contact us", "Get in touch"])
+    nav = f'<a href="index.html">Home</a><a href="about.html">About</a><a href="contact.html">{contact_link}</a>'
+    pages = {
+        "index.html": SITE.format(title=b["name"], name=html.escape(b["name"]), nav=nav, footer=footer,
+                                  body=f"<h1>Welcome to {html.escape(b['name'])}</h1><p>Serving {b['city']} since {r.randint(1985, 2022)}.</p>"
+                                       "<p>Template text: replace you@example.com with your address.</p>"),
+        "about.html": SITE.format(title="About", name=html.escape(b["name"]), nav=nav, footer=footer,
+                                  body=f"<h1>About us</h1><p>A local {CATEGORIES[b['categories'][0]][0].lower()} business in {b['city']}.</p>"),
+    }
+    tel = f"({b['area']}) 555-01{b['line']}"
+    contact = f'<h1>{contact_link}</h1><p>Call <a href="tel:+1{b["area"]}55501{b["line"]}">{tel}</a>.</p>'
+    if kind == "mailto":
+        contact += f'<p>Email <a href="mailto:{role}?subject=Hello">{role}</a></p>'
+    if kind == "form-only":
+        contact += '<form><label>Your email <input type="email" placeholder="name@example.com"></label><button>Send</button></form>'
+    if kind == "team":
+        contact += f'<p>General enquiries: <a href="mailto:{role}">{role}</a></p>'
+        nav += '<a href="team.html">Our team</a>'
+        pages["team.html"] = SITE.format(title="Team", name=html.escape(b["name"]), nav=nav, footer=footer,
+                                         body=f"<h1>Our team</h1><p><strong>{first} {last}</strong>, owner. "
+                                              f'Reach {first} directly at <a href="mailto:{personal}">{personal}</a>.</p>')
+    pages["contact.html"] = SITE.format(title="Contact", name=html.escape(b["name"]), nav=nav, footer=footer, body=contact)
+    return pages
 
 
 def write(path: Path, title: str, body: str, root: str) -> None:
@@ -161,7 +257,9 @@ def main() -> None:
 
     for b in biz:
         cats = ", ".join(f'<a href="../{c}/page-1.html">{CATEGORIES[c][0]}</a>' for c in b["categories"])
-        web = f'<dt>Website</dt><dd><a class="website" href="{b["website"]}">{b["website"].removeprefix("https://")}</a></dd>' if b["website"] else ""
+        # The website link leads to the business's own (demo) site, served next to the directory.
+        domain = b["website"].removeprefix("https://www.")
+        web = f'<dt>Website</dt><dd><a class="website" href="../web/{domain}/index.html">www.{domain}</a></dd>' if b["website"] else ""
         mail = f'<dt>Email</dt><dd><a class="email" href="mailto:{b["email"]}">{b["email"]}</a></dd>' if b["email"] else ""
         body = f"""<article class="business" itemscope itemtype="https://schema.org/LocalBusiness">
 <h2 itemprop="name">{html.escape(b['name'])}</h2>
@@ -174,7 +272,14 @@ def main() -> None:
 </dl></article>"""
         write(OUT / "biz" / f"{b['slug']}.html", b["name"], body, "../")
 
-    print(f"directory: {len(biz)} businesses, {sum(len(v) for v in by_cat.values())} listings -> {OUT}")
+    sites = 0
+    for b in {b["website"]: b for b in biz if b["website"] and not b["slug"].endswith("-listing-2")}.values():
+        for name, page in website(b).items():
+            (OUT / "web" / b["website"].removeprefix("https://www.") / name).parent.mkdir(parents=True, exist_ok=True)
+            (OUT / "web" / b["website"].removeprefix("https://www.") / name).write_text(page, encoding="utf-8")
+            sites += name == "index.html"
+
+    print(f"directory ({TODAY}): {len(biz)} businesses, {sites} websites, {sum(len(v) for v in by_cat.values())} listings -> {OUT}")
 
 
 if __name__ == "__main__":

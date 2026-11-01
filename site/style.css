@@ -137,7 +137,7 @@ td.cat { white-space: normal; min-width: 150px; }
 .note { margin: 0; padding: 10px 12px; border-top: 1px solid var(--border); color: var(--muted); font-size: 12px; }
 
 /* Side cards */
-.downloads { display: flex; gap: 6px; }
+.downloads { display: flex; flex-wrap: wrap; gap: 6px; }
 .btn { display: inline-flex; align-items: center; justify-content: center; height: 32px; padding: 0 12px; border-radius: 6px; border: 1px solid var(--border); background: var(--surface);
   box-shadow: var(--shadow); font-weight: 500; text-decoration: none; cursor: pointer; }
 .btn:hover { background: var(--surface-2); }
@@ -199,3 +199,27 @@ dd a { color: var(--accent); }
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { animation-duration: .01ms !important; transition-duration: .01ms !important; }
 }
+
+/* Leads: e-mail status, socials, score, changes */
+.mail { word-break: break-all; }
+.net { margin-right: 8px; font-size: 12px; }
+.sub .tag { margin-right: 6px; }
+.st-personal { color: #15803d; border-color: #86efac; }
+.st-role { color: var(--muted); }
+.st-free-mail { color: #a16207; border-color: #fde68a; }
+.st-disposable, .st-invalid { color: #b91c1c; border-color: #fca5a5; }
+.score { display: inline-block; min-width: 30px; padding: 1px 6px; border-radius: 6px; font-weight: 600; text-align: center; margin-right: 6px; }
+.score.hi { background: #dcfce7; color: #166534; }
+.score.mid { background: #fef9c3; color: #854d0e; }
+.score.lo { background: #fee2e2; color: #991b1b; }
+.dark .score.hi { background: #14532d; color: #bbf7d0; }
+.dark .score.mid { background: #713f12; color: #fef08a; }
+.dark .score.lo { background: #7f1d1d; color: #fecaca; }
+.ch-new { color: #1d4ed8; border-color: #93c5fd; }
+.ch-changed { color: #a16207; border-color: #fde68a; }
+.deltas { display: flex; flex-wrap: wrap; gap: 12px; margin: 0 0 8px; }
+.deltas button { border: 0; background: none; padding: 0; cursor: pointer; color: var(--accent); }
+.closed { margin: 4px 0 0; padding-left: 18px; font-size: 13px; color: var(--muted); }
+.downloads #crm { flex-basis: 100%; }
+td .score + .tag { vertical-align: middle; }
+#table td:last-child { min-width: 132px; }

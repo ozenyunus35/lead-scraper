@@ -2,29 +2,39 @@
 
 const LABELS = {
   name: "Business", category: "Category", phone: "Phone (E.164)", phone_display: "Phone", street: "Street", city: "City", state: "State", zip: "ZIP",
-  website: "Website", email: "Email", rating: "Rating", reviews: "Reviews", source_url: "Source page",
+  website: "Website", domain: "Domain", email: "Email", rating: "Rating", reviews: "Reviews", source_url: "Source page",
+  score: "Lead score", email_status: "Email status", other_emails: "Other emails", linkedin: "LinkedIn", facebook: "Facebook", instagram: "Instagram", x: "X",
+  other_phones: "Other phones", site_status: "Website check", change: "Since last run", changes: "What changed", first_seen: "First seen",
   title: "Title", price_gbp: "Price (£)", in_stock: "In stock", url: "Link",
 };
 
 // Per dataset: table columns, the two filters and the breakdown shown on the side.
 const SETS = {
   directory: {
-    columns: ["name", "category", "phone_display", "website", "rating"],
+    columns: ["name", "category", "phone_display", "email", "score"],
     filters: [
       { label: "Category", all: "All categories", values: (rows) => [...new Set(rows.flatMap(categories))].sort(), match: (r, v) => categories(r).includes(v) },
       { label: "City", all: "All cities", values: (rows) => [...new Set(rows.map((r) => r.city))].sort(), match: (r, v) => r.city === v },
+      {
+        label: "Leads", all: "All leads",
+        values: () => ["personal", "email", "social", "score70", "new", "changed"],
+        text: (v) => ({ personal: "Named person's email", email: "Has an email", social: "Has social profiles", score70: "Score 70+", new: "New since last run", changed: "Changed since last run" })[v],
+        match: (r, v) => ({ personal: r.email_status === "personal", email: !!r.email, social: SOCIALS.some((n) => r[n]), score70: r.score >= 70, new: r.change === "new", changed: r.change === "changed" })[v],
+      },
     ],
+    sorts: [["score", "Best leads first"], ["name", "Name A–Z"], ["rating", "Highest rated"], ["first_seen", "Newest first"]],
     breakdown: { title: "By category", key: (r) => categories(r), filter: 0 },
-    search: ["name", "category", "city", "street", "phone_display", "website", "email"],
+    search: ["name", "category", "city", "street", "phone_display", "website", "email", "other_emails"],
     pipeline: (m, rows) => [
       ["Crawl", m.pages_fetched, "pages, robots.txt respected"],
-      ["Parse", m.records + m.duplicates_removed, "listings found"],
       ["Clean", rows.filter((r) => r.phone).length, "phones in E.164"],
       ["Merge", m.duplicates_removed, "duplicates merged"],
-      ["Export", m.records, `records in ${m.duration_s}s`],
+      ["Enrich", rows.filter((r) => r.email).length, `emails from ${m.sites_visited ?? 0} websites`],
+      ["Score", rows.filter((r) => r.score >= 70).length, "leads scored 70+"],
     ],
   },
   books: {
+    sorts: [],
     columns: ["title", "price_gbp", "rating", "in_stock", "url"],
     filters: [
       { label: "Rating", all: "Any rating", values: () => ["5", "4", "3", "2", "1"], text: (v) => `${v} stars`, match: (r, v) => String(r.rating) === v },
@@ -48,7 +58,14 @@ const ICONS = {
   Clean: '<path d="m5 13 4 4L19 7"/>',
   Merge: '<path d="M7 4v6a5 5 0 0 0 5 5h5M17 11l3 4-3 4M7 20v-4"/>',
   Export: '<path d="M12 4v11M7 10l5 5 5-5M5 20h14"/>',
+  Enrich: '<path d="M4 6h16v12H4z"/><path d="m4 7 8 6 8-6"/>',
+  Score: '<path d="M12 3 14.6 8.6 20.5 9.2 16 13.2 17.3 19 12 16 6.7 19 8 13.2 3.5 9.2 9.4 8.6z"/>',
 };
+
+const SOCIALS = ["linkedin", "facebook", "instagram", "x"];
+const STATUS = { personal: "Named person", role: "Shared inbox", "free-mail": "Free mail", disposable: "Disposable", invalid: "Invalid" };
+// HubSpot's company import columns; Salesforce and Pipedrive map the same names. Same as scraper/export.py.
+const CRM = [["Company name", "name"], ["Company Domain Name", "domain"], ["Phone Number", "phone"], ["Email", "email"], ["Street Address", "street"], ["City", "city"], ["State/Region", "state"], ["Postal Code", "zip"], ["Website URL", "website"], ["LinkedIn Company Page", "linkedin"], ["Facebook Company Page", "facebook"], ["Category", "category"], ["Lead Score", "score"], ["Email Status", "email_status"]];
 
 const cache = {};
 let current = "directory";
@@ -90,6 +107,7 @@ const stars = (n) => `<span class="stars" aria-label="${n} out of 5">${"★".rep
 
 function cell(field, r) {
   const v = r[field];
+  if (field === "email" && !v && SOCIALS.some((n) => r[n])) return cell("email", { ...r, email: " " });
   if (v === "" || v === null || v === undefined) return '<span class="empty">—</span>';
   switch (field) {
     case "name":
@@ -102,6 +120,16 @@ function cell(field, r) {
       return `${esc(v)}<span class="sub">${esc(r.phone)}</span>`;
     case "website":
       return `<a href="${esc(v)}" rel="nofollow noopener" target="_blank">${esc(host(v))}</a>${r.email ? `<span class="sub">${esc(r.email)}</span>` : ""}`;
+    case "email": {
+      const nets = SOCIALS.filter((n) => r[n]).map((n) => `<a class="net" href="${esc(r[n])}" rel="nofollow noopener" target="_blank">${LABELS[n]}</a>`).join("");
+      const status = r.email_status ? `<span class="tag st-${esc(r.email_status)}">${esc(STATUS[r.email_status] || r.email_status)}</span>` : "";
+      return `<span class="mail">${esc(v)}</span><span class="sub">${status}${nets}</span>`;
+    }
+    case "score": {
+      const level = v >= 70 ? "hi" : v >= 45 ? "mid" : "lo";
+      const news = r.change ? `<span class="tag ch-${esc(r.change)}" title="${esc(r.changes || "First seen in this run")}">${r.change === "new" ? "new" : "changed"}</span>` : "";
+      return `<span class="score ${level}">${esc(v)}</span>${news}<span class="sub">${stars(r.rating)} ${Number(r.rating || 0).toFixed(1)} · ${esc(r.reviews)} reviews</span>`;
+    }
     case "url":
       return `<a href="${esc(v)}" rel="nofollow noopener" target="_blank">Open</a>`;
     case "rating":
@@ -124,11 +152,26 @@ function render() {
     .pipeline(m, data.rows)
     .map(([step, n, label]) => `<li><span class="step"><svg viewBox="0 0 24 24" aria-hidden="true">${ICONS[step]}</svg>${step}</span><b>${n.toLocaleString("en-US")}</b><small>${esc(label)}</small></li>`)
     .join("");
-  $("downloads").innerHTML = ["xlsx", "csv", "json"]
-    .map((ext, i) => `<a class="btn${i === 0 ? " primary" : ""}" href="data/${current}.${ext}" download>${ext === "xlsx" ? "Excel" : ext.toUpperCase()}</a>`)
-    .join("");
+  $("downloads").innerHTML =
+    ["xlsx", "csv", "json"].map((ext, i) => `<a class="btn${i === 0 ? " primary" : ""}" href="data/${current}.${ext}" download>${ext === "xlsx" ? "Excel" : ext.toUpperCase()}</a>`).join("") +
+    (current === "directory" ? '<button type="button" class="btn" id="crm">CRM import (filtered)</button>' : "");
+  $("crm-note").hidden = current !== "directory";
 
-  ["f1", "f2"].forEach((id, i) => {
+  // What changed since the last run.
+  const ch = m.changes;
+  $("changes-card").hidden = !ch;
+  if (ch) {
+    const closed = (ch.closed_names || []).map((n) => `<li>${esc(n)}</li>`).join("");
+    $("changes").innerHTML = ch.compared
+      ? `<p class="deltas"><button type="button" data-lead="new"><b>${ch.new}</b> new</button><button type="button" data-lead="changed"><b>${ch.changed}</b> changed</button><span><b>${ch.closed}</b> closed</span></p>` +
+        (closed ? `<p class="faint">No longer listed:</p><ul class="closed">${closed}</ul>` : "")
+      : '<p class="faint">This is the first run with change tracking; tomorrow\'s run will list what opened, closed or changed.</p>';
+  }
+
+  $("sort").hidden = !set.sorts.length;
+  $("sort").innerHTML = set.sorts.map(([k, t]) => `<option value="${k}">${t}</option>`).join("");
+
+  ["f1", "f2", "f3"].forEach((id, i) => {
     const f = set.filters[i], el = $(id);
     el.hidden = !f;
     if (!f) return;
@@ -164,10 +207,14 @@ function render() {
 function draw() {
   const set = SETS[current];
   const q = $("q").value.trim().toLowerCase();
-  const picked = ["f1", "f2"].map((id) => $(id).value);
+  const picked = ["f1", "f2", "f3"].map((id) => $(id).value);
   visible = data.rows.filter(
     (r) => (!q || set.search.some((f) => String(r[f] ?? "").toLowerCase().includes(q))) && set.filters.every((f, i) => !picked[i] || f.match(r, picked[i])),
   );
+  const by = $("sort").value;
+  if (by === "score" || by === "rating") visible.sort((a, b) => (Number(b[by]) || 0) - (Number(a[by]) || 0) || String(a.name).localeCompare(b.name));
+  else if (by === "name") visible.sort((a, b) => String(a.name).localeCompare(b.name));
+  else if (by === "first_seen") visible.sort((a, b) => String(b.first_seen).localeCompare(String(a.first_seen)) || (b.change === "new") - (a.change === "new"));
   const shown = visible.slice(0, 200);
   const num = (f) => (f === "price_gbp" ? ' class="num"' : "");
   $("table").innerHTML =
@@ -184,7 +231,8 @@ function openRecord(r) {
     .map((f) => {
       let v = r[f];
       if (v === "" || v === null || v === undefined) v = '<span class="empty">Not listed</span>';
-      else if (/url|website/.test(f)) v = `<a href="${esc(v)}" rel="nofollow noopener" target="_blank">${esc(host(v))}</a>`;
+      else if (/url|website|linkedin|facebook|instagram|^x$/.test(f)) v = `<a href="${esc(v)}" rel="nofollow noopener" target="_blank">${esc(host(v))}</a>`;
+      else if (f === "email_status") v = esc(STATUS[v] || v);
       else if (f === "phone") v = `<code>${esc(v)}</code>`;
       else if (f === "in_stock") v = v ? "Yes" : "No";
       else v = esc(v);
@@ -211,6 +259,30 @@ document.querySelectorAll("[role=tab]").forEach((t) => t.addEventListener("click
 $("q").addEventListener("input", draw);
 $("f1").addEventListener("change", draw);
 $("f2").addEventListener("change", draw);
+$("f3").addEventListener("change", draw);
+$("sort").addEventListener("change", draw);
+
+/** The filtered leads as a CSV a CRM imports without column mapping; unreachable leads are left out. */
+function crmCsv(rows) {
+  const q = (v) => (/[",\n]/.test(String(v ?? "")) ? `"${String(v).replace(/"/g, '""')}"` : String(v ?? ""));
+  const lines = [CRM.map(([c]) => c).join(",")].concat(rows.filter((r) => r.phone || r.email).map((r) => CRM.map(([, k]) => q(r[k])).join(",")));
+  return "\ufeff" + lines.join("\r\n");
+}
+$("downloads").addEventListener("click", (e) => {
+  if (!e.target.closest("#crm")) return;
+  const url = URL.createObjectURL(new Blob([crmCsv(visible)], { type: "text/csv;charset=utf-8" }));
+  const a = Object.assign(document.createElement("a"), { href: url, download: "leads-crm-import.csv" });
+  document.body.append(a);
+  a.click();
+  a.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 1000);
+});
+$("changes").addEventListener("click", (e) => {
+  const b = e.target.closest("[data-lead]");
+  if (!b) return;
+  $("f3").value = b.dataset.lead;
+  draw();
+});
 $("breakdown").addEventListener("click", (e) => {
   const b = e.target.closest("[data-filter]");
   if (!b) return;

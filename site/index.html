@@ -46,6 +46,8 @@
           </label>
           <select id="f1" aria-label="Category"></select>
           <select id="f2" aria-label="City"></select>
+          <select id="f3" aria-label="Leads"></select>
+          <select id="sort" aria-label="Sort"></select>
           <span class="count" id="count" aria-live="polite"></span>
         </div>
         <div class="table-box" tabindex="0" aria-label="Scraped records">
@@ -59,6 +61,11 @@
           <h2 class="card-title">Download</h2>
           <div class="downloads" id="downloads"></div>
           <p class="faint">Every field, including the street, ZIP and source URL of each listing.</p>
+          <p class="faint" id="crm-note">The CRM file takes the leads you filtered, in HubSpot's import columns (Salesforce and Pipedrive map them too).</p>
+        </section>
+        <section class="card" id="changes-card" hidden>
+          <h2 class="card-title">Since the last run</h2>
+          <div id="changes"></div>
         </section>
         <section class="card">
           <h2 class="card-title">Field coverage</h2>
@@ -77,10 +84,13 @@
         <li><b>Crawl politely</b><span>Checks robots.txt, waits between requests, retries with back-off and sends a clear user agent.</span></li>
         <li><b>Follow the structure</b><span>Category pages, then pagination, then each business page, collecting every listing once.</span></li>
         <li><b>Clean</b><span>Phone numbers in any format become E.164; addresses split into street, city, state and ZIP.</span></li>
-        <li><b>De-duplicate</b><span>The same business listed twice is merged by phone number, keeping the most complete record and all categories.</span></li>
-        <li><b>Export</b><span>CSV, a formatted Excel workbook and JSON, published here by a scheduled GitHub Actions job.</span></li>
+        <li><b>De-duplicate</b><span>The same business listed twice is merged by phone number and name, or name and ZIP when a copy has no phone, keeping the most complete record and all categories.</span></li>
+        <li><b>Find contacts</b><span>Visits each business's own website (home, contact and team pages) for e-mail addresses, LinkedIn, Facebook, Instagram and X, decoding "info [at] shop [dot] com" and skipping look-alikes such as image names and template placeholders.</span></li>
+        <li><b>Check and score</b><span>Each e-mail is marked as a named person, a shared inbox, free mail, disposable or invalid; each lead gets a 0–100 score for how reachable and established it is.</span></li>
+        <li><b>Track changes</b><span>Compares with yesterday's run: businesses that opened, closed or changed their phone, address, e-mail or rating.</span></li>
+        <li><b>Export</b><span>CSV, a formatted Excel workbook, JSON and a CRM import file, published here by a scheduled GitHub Actions job.</span></li>
       </ol>
-      <p class="faint">The business directory is a <a href="directory/index.html">demo site</a> with invented businesses (phone numbers in the fictional 555-01xx range), built for this showcase. The books dataset comes from <a href="https://books.toscrape.com/">books.toscrape.com</a>, a public sandbox made for scraping practice.</p>
+      <p class="faint">The business directory is a <a href="directory/index.html">demo site</a> with invented businesses and their own small websites (phone numbers in the fictional 555-01xx range, domains under the reserved .example), built for this showcase; a few businesses open, close or change every day. The books dataset comes from <a href="https://books.toscrape.com/">books.toscrape.com</a>, a public sandbox made for scraping practice.</p>
     </section>
 
     <footer class="foot">

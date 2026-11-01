@@ -2,14 +2,22 @@
 from __future__ import annotations
 
 import re
-from urllib.parse import urljoin
+from urllib.parse import urljoin, urlparse
 
 from bs4 import BeautifulSoup
 
 from ..clean import phone_e164, phone_pretty, squash
 from ..http import Fetcher
 
-FIELDS = ["name", "category", "phone", "phone_display", "street", "city", "state", "zip", "website", "email", "rating", "reviews", "source_url"]
+FIELDS = ["name", "category", "phone", "phone_display", "street", "city", "state", "zip", "website", "domain", "email", "rating", "reviews", "source_url"]
+
+
+def domain_of(link, url: str) -> str:
+    """The site's domain: from the link text when it reads like one ('www.shop.com'), else the URL."""
+    text = squash(link.get_text()).lower().removeprefix("https://").removeprefix("http://").removeprefix("www.").rstrip("/")
+    if re.fullmatch(r"[a-z0-9-]+(\.[a-z0-9-]+)+", text):
+        return text
+    return urlparse(urljoin(url, link["href"])).netloc.lower().removeprefix("www.")
 
 
 def parse_address(lines: list[str]) -> tuple[str, str, str, str]:
@@ -65,7 +73,8 @@ def parse_detail(html: str, url: str) -> dict | None:
         "city": city,
         "state": state,
         "zip": zip_,
-        "website": web["href"] if web else "",
+        "website": urljoin(url, web["href"]) if web else "",
+        "domain": domain_of(web, url) if web else "",
         "email": mail.get_text(strip=True) if mail else "",
         "rating": rating,
         "reviews": reviews,

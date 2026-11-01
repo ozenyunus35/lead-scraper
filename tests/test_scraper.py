@@ -50,7 +50,7 @@ def test_books_list_page_is_parsed():
 def demo_site(tmp_path_factory):
     """Generate the demo directory and serve it on a local port."""
     root = tmp_path_factory.mktemp("site")
-    subprocess.run([sys.executable, str(ROOT / "demo_directory" / "generate.py"), str(root / "directory")], check=True)
+    subprocess.run([sys.executable, str(ROOT / "demo_directory" / "generate.py"), str(root / "directory"), "2026-11-01"], check=True)
     handler = functools.partial(http.server.SimpleHTTPRequestHandler, directory=str(root))
     httpd = http.server.ThreadingHTTPServer(("127.0.0.1", 0), handler)
     threading.Thread(target=httpd.serve_forever, daemon=True).start()
@@ -224,3 +224,136 @@ def test_a_site_that_returns_nothing_writes_nothing(tmp_path):
     with pytest.raises(SystemExit) as e:
         main(["books", "--url", "http://127.0.0.1:9/none.html", "--delay", "0", "--out", str(tmp_path)])
     assert e.value.code == 1 and not list(tmp_path.iterdir())
+
+
+# --- Contacts from a business's own website ------------------------------------------------------
+
+def _serve(pages: dict[str, str]):
+    class Handler(http.server.BaseHTTPRequestHandler):
+        def log_message(self, *a):
+            pass
+
+        def do_GET(self):
+            body = pages.get(self.path)
+            self.send_response(200 if body is not None else 404)
+            self.send_header("Content-Type", "text/plain" if self.path.endswith(".txt") else "text/html")
+            self.end_headers()
+            if body is not None:
+                self.wfile.write(body.encode("utf-8"))
+
+    httpd = http.server.ThreadingHTTPServer(("127.0.0.1", 0), Handler)
+    threading.Thread(target=httpd.serve_forever, daemon=True).start()
+    return httpd, f"http://127.0.0.1:{httpd.server_address[1]}"
+
+
+def test_contacts_are_found_on_the_pages_that_hold_them_and_look_alikes_are_skipped():
+    from scraper.enrich import enrich
+    pages = {
+        "/": """<nav><a href="/about">About</a> <a href="/contact-us">Get in touch</a> <a href="https://elsewhere.example/contact">Partner</a></nav>
+<p>Template: you@example.com</p><img src="logo@2x.png"><script>var dsn = "abc@sentry.io"</script>
+<footer><a href="https://www.instagram.com/harborgrill/">IG</a> <a href="https://www.facebook.com/sharer/sharer.php?u=x">Share</a>
+<a href="https://www.facebook.com/harborgrill?ref=footer">FB</a></footer>""",
+        "/contact-us": """<p>Write to info [at] harborgrill [dot] example or call <a href="tel:+1-415-555-0190">us</a>.</p>
+<a href="/team">Our team</a><input type="email" placeholder="name@domain.com">""",
+        "/team": """<p>Owner: <a href="mailto:Maria.Lopez@harborgrill.example?subject=Hi">Maria Lopez</a>; bookkeeping by
+<a href="mailto:acct@othercpa.example">our accountant</a>.</p>
+<a href="https://www.linkedin.com/company/harbor-grill/about/">LinkedIn</a>""",
+        "/about": "<p>About us</p>",
+    }
+    httpd, base = _serve(pages)
+    try:
+        found = enrich({"website": base + "/", "domain": "harborgrill.example"}, Fetcher(delay=0))
+    finally:
+        httpd.shutdown()
+    assert found["emails"] == ["maria.lopez@harborgrill.example", "info@harborgrill.example", "acct@othercpa.example"]
+    assert found["instagram"] == "https://www.instagram.com/harborgrill"
+    assert found["facebook"] == "https://www.facebook.com/harborgrill"  # not the share button
+    assert found["linkedin"] == "https://www.linkedin.com/company/harbor-grill"
+    assert found["site_phones"] == ["+14155550190"]
+    assert found["site_status"] == "ok"
+
+
+def test_a_dead_or_parked_website_is_reported_not_guessed():
+    from scraper.enrich import enrich
+    httpd, base = _serve({"/parked": "<h1>This domain is parked</h1><p>Contact the registrar.</p>"})
+    try:
+        fetch = Fetcher(delay=0)
+        assert enrich({"website": base + "/gone"}, fetch)["site_status"] == "unreachable"
+        assert enrich({"website": base + "/parked"}, fetch)["site_status"] == "parked"
+        assert enrich({"website": ""}, fetch)["site_status"] == "no website"
+    finally:
+        httpd.shutdown()
+
+
+@pytest.mark.parametrize("email, status", [
+    ("maria.lopez@harborgrill.example", "personal"),
+    ("Info@HarborGrill.example", "role"),
+    ("harborgrill@gmail.com", "free-mail"),
+    ("x7@mailinator.com", "disposable"),
+    ("maria..lopez@harborgrill.example", "invalid"),
+    ("maria@harborgrill", "invalid"),
+    (".maria@harborgrill.example", "invalid"),
+    ("", ""),
+])
+def test_email_status(email, status):
+    from scraper.quality import email_status
+    assert email_status(email) == status
+
+
+def test_score_ranks_a_reachable_established_lead_above_a_bare_one():
+    from scraper.quality import score
+    full = {"phone": "+14155550101", "email_status": "personal", "website": "https://h.example", "site_status": "ok", "linkedin": "x",
+            "rating": 5.0, "reviews": 900, "street": "1 Main St", "city": "Oakland", "zip": "94601", "category": "Restaurants"}
+    bare = {"phone": "", "email_status": "", "website": "", "rating": 3.2, "reviews": 3, "street": "", "city": "Oakland", "zip": "", "category": "Restaurants"}
+    assert score(full) == 100
+    assert score(bare) < 20
+    assert score({**full, "email_status": "role"}) < score(full)
+
+
+def test_changes_since_the_last_run():
+    from scraper.changes import compare
+    before = [
+        {"name": "Harbor Grill", "source_url": "u/harbor", "phone_display": "(415) 555-0101", "street": "1 Main St", "rating": 4.5, "first_seen": "2026-11-01"},
+        {"name": "Bay Dental", "source_url": "u/bay", "phone_display": "(415) 555-0102", "street": "2 Main St", "rating": 4.1, "first_seen": "2026-11-01"},
+        {"name": "Old Plumbing", "source_url": "u/old", "phone_display": "(415) 555-0103", "street": "3 Main St", "rating": 3.9, "first_seen": "2026-11-01"},
+    ]
+    now = [
+        {"name": "Harbor Grill", "source_url": "u/harbor", "phone_display": "(415) 555-0177", "street": "1 Main St", "rating": 4.5},
+        {"name": "Bay Dental", "source_url": "u/bay", "phone_display": "(415) 555-0102", "street": "2 Main St", "rating": 4.1},
+        {"name": "New Yoga", "source_url": "u/yoga", "phone_display": "(415) 555-0104", "street": "4 Main St", "rating": 4.9},
+    ]
+    summary = compare(now, before, "2026-11-02")
+    assert summary == {"new": 1, "changed": 1, "closed": 1, "closed_names": ["Old Plumbing"], "compared": True}
+    assert [(r["change"], r["first_seen"]) for r in now] == [("changed", "2026-11-01"), ("", "2026-11-01"), ("new", "2026-11-02")]
+    assert now[0]["changes"] == "phone (415) 555-0101 → (415) 555-0177"
+    assert compare([dict(r) for r in now], None, "2026-11-02")["compared"] is False
+
+
+def test_the_demo_directory_changes_a_little_every_day(tmp_path):
+    def run(day: str):
+        root = tmp_path / day
+        subprocess.run([sys.executable, str(ROOT / "demo_directory" / "generate.py"), str(root / "directory"), day], check=True, capture_output=True)
+        handler = functools.partial(http.server.SimpleHTTPRequestHandler, directory=str(root))
+        httpd = http.server.ThreadingHTTPServer(("127.0.0.1", 0), handler)
+        threading.Thread(target=httpd.serve_forever, daemon=True).start()
+        try:
+            from scraper.__main__ import main
+            out = tmp_path / f"out-{day}"
+            args = ["directory", "--url", f"http://127.0.0.1:{httpd.server_address[1]}/directory/index.html", "--delay", "0", "--out", str(out),
+                    "--report-url", "https://demo.example/directory/index.html"]
+            if day != "2026-11-01":
+                args += ["--previous", str(tmp_path / "out-2026-11-01" / "directory.json")]
+            return main(args), out
+        finally:
+            httpd.shutdown()
+
+    first, _ = run("2026-11-01")
+    assert first["changes"]["compared"] is False and first["sites_visited"] > 80 and first["emails_found"] > 60
+    later, out = run("2026-11-04")
+    c = later["changes"]
+    assert (c["new"], c["closed"]) == (3, 3) and 1 <= c["changed"] <= 3  # one of each a day, nothing else moves
+    import csv
+    with (out / "directory-crm.csv").open(encoding="utf-8-sig") as f:
+        crm = list(csv.DictReader(f))
+    assert crm and all(r["Phone Number"] or r["Email"] for r in crm)
+    assert all(r["Website URL"].startswith("https://demo.example/directory/web/") for r in crm if r["Website URL"])

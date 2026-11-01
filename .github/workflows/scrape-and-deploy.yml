@@ -34,8 +34,11 @@ jobs:
         run: |
           python -m http.server 8000 --directory site > /dev/null 2>&1 &
           sleep 2
+          # Yesterday's published results, so today's run can say what opened, closed or changed.
+          curl -fsSL -o previous-directory.json https://ozenyunus35.github.io/lead-scraper/data/directory.json || true
           python -m scraper directory \
             --url http://localhost:8000/directory/index.html \
+            --previous previous-directory.json \
             --report-url https://ozenyunus35.github.io/lead-scraper/directory/index.html \
             --delay 0.2 --out site/data
       - name: Scrape books.toscrape.com (first 5 pages, 1 request per second)
