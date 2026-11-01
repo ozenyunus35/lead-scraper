@@ -28,9 +28,20 @@ CATEGORIES = {
 NAMES = ["Harbor", "Golden Gate", "Bayview", "Mission", "Sunset", "Pacific", "Union", "Market Street", "Presidio",
          "Marina", "Nob Hill", "Castro", "Dogpatch", "Embarcadero", "Twin Peaks", "Hayes", "Fillmore", "Ocean",
          "Lakeside", "Redwood", "Cedar", "Summit", "Bridgeview", "Northpoint", "Cypress", "Alameda"]
-STREETS = ["Market St", "Mission St", "Valencia St", "Geary Blvd", "Irving St", "Divisadero St", "Columbus Ave",
-           "Polk St", "Fillmore St", "Clement St", "Haight St", "24th St", "Folsom St", "Bryant St"]
-CITIES = [("San Francisco", "CA", "941"), ("Oakland", "CA", "946"), ("Berkeley", "CA", "947"), ("Daly City", "CA", "940")]
+# Each city with its own streets, real ZIP range and area code, so an address reads like a real one.
+CITIES = [
+    ("San Francisco", "CA", "415", range(94102, 94135), ["Market St", "Mission St", "Valencia St", "Geary Blvd", "Irving St",
+     "Divisadero St", "Columbus Ave", "Polk St", "Fillmore St", "Clement St", "Haight St", "24th St"]),
+    ("Oakland", "CA", "510", range(94601, 94622), ["Broadway", "Telegraph Ave", "Grand Ave", "College Ave", "Lakeshore Ave",
+     "Piedmont Ave", "International Blvd"]),
+    ("Berkeley", "CA", "510", range(94702, 94711), ["Shattuck Ave", "University Ave", "San Pablo Ave", "Solano Ave",
+     "Ashby Ave", "Telegraph Ave"]),
+    ("Daly City", "CA", "650", range(94014, 94018), ["Mission St", "Geneva Ave", "Westlake Ave", "Southgate Ave",
+     "John Daly Blvd", "Skyline Blvd"]),
+]
+# Second listings only where a business really does both: a realtor that also does
+# property tax returns, a tax office that also handles property sales.
+RELATED = {"accountants": "real-estate", "real-estate": "accountants"}
 
 
 def phone_variants(area: str, line: str) -> str:
@@ -57,8 +68,7 @@ def make_businesses() -> list[dict]:
             if name not in seen:
                 seen.add(name)
                 break
-        city, state, zip3 = rnd.choice(CITIES)
-        area = {"San Francisco": "415", "Oakland": "341", "Berkeley": "510", "Daly City": "650"}[city]
+        city, state, area, zips, streets = rnd.choice(CITIES)
         while True:  # every business gets its own number
             line = f"{rnd.randint(0, 99):02d}"
             if (area, line) not in used_numbers:
@@ -70,30 +80,30 @@ def make_businesses() -> list[dict]:
             "slug": slug,
             "name": name,
             "categories": [slug_cat],
-            "street": f"{rnd.randint(10, 4999)} {rnd.choice(STREETS)}" + (f", Suite {rnd.randint(100, 450)}" if rnd.random() < 0.25 else ""),
+            "street": f"{rnd.randint(10, 4999)} {rnd.choice(streets)}" + (f", Suite {rnd.randint(100, 450)}" if rnd.random() < 0.25 else ""),
             "city": city,
             "state": state,
-            "zip": f"{zip3}{rnd.randint(10, 99)}",
+            "zip": str(rnd.choice(zips)),
             "area": area,
             "line": line,
             "website": f"https://www.{domain}" if rnd.random() < 0.8 else "",
             "email": f"hello@{domain}" if rnd.random() < 0.55 else "",
             "rating": round(rnd.uniform(3.2, 5.0), 1),
-            "reviews": rnd.randint(4, 640),
+            "reviews": rnd.randint(4, 640) if rnd.random() < 0.85 else rnd.randint(1000, 2600),
         })
-    # Some businesses are listed under a second category, e.g. a gym that also does physio.
-    for b in rnd.sample(out, 16):
-        other = rnd.choice([c for c in CATEGORIES if c not in b["categories"]])
-        b["categories"].append(other)
+    # A few businesses are listed under a second category that fits what they do.
+    for b in rnd.sample([b for b in out if b["categories"][0] in RELATED], 6):
+        b["categories"].append(RELATED[b["categories"][0]])
     # And some are listed twice as separate entries, with a slightly different name
     # and their phone written another way. Same phone number = same business.
     for b in rnd.sample(out[:120], 12):
         dup = dict(b)
         dup["name"] = b["name"] + rnd.choice([" LLC", " Inc.", " (Main Office)", " & Co"])
         dup["slug"] = b["slug"] + "-listing-2"
-        dup["categories"] = [rnd.choice([c for c in CATEGORIES if c not in b["categories"]])]
+        dup["categories"] = list(b["categories"])  # the same business, entered again in its own category
         dup["website"] = "" if rnd.random() < 0.5 else b["website"]
         dup["email"] = ""
+        dup["no_phone"] = rnd.random() < 0.4  # some copies leave the phone out: name and ZIP still match
         out.append(dup)
     return out
 
@@ -137,7 +147,7 @@ def main() -> None:
         for n, chunk in enumerate(pages, 1):
             rows = "".join(
                 f"""<article class="listing"><h2><a href="../biz/{b['slug']}.html">{html.escape(b['name'])}</a></h2>
-<div class="meta"><span class="addr">{html.escape(b['street'])}, {b['city']}</span> · <span class="tel">{phone_variants(b['area'], b['line'])}</span>
+<div class="meta"><span class="addr">{html.escape(b['street'])}, {b['city']}</span> · <span class="tel">{'' if b.get('no_phone') else phone_variants(b['area'], b['line'])}</span>
 · <span class="stars">★ {b['rating']}</span></div></article>"""
                 for b in chunk
             )
@@ -157,10 +167,10 @@ def main() -> None:
 <h2 itemprop="name">{html.escape(b['name'])}</h2>
 <p class="categories">{cats}</p>
 <dl>
-<dt>Address</dt><dd class="address" itemprop="address">{html.escape(b['street'])}<br>{b['city']}, {b['state']} {b['zip']}</dd>
-<dt>Phone</dt><dd class="phone" itemprop="telephone">{phone_variants(b['area'], b['line'])}</dd>
+<dt>Address</dt><dd class="address" itemprop="address">{html.escape(b['street']).replace(', Suite', '<br>Suite')}<br>{b['city']}, {b['state']} {b['zip']}</dd>
+{'' if b.get('no_phone') else f"<dt>Phone</dt><dd class='phone' itemprop='telephone'>{phone_variants(b['area'], b['line'])}</dd>"}
 {web}{mail}
-<dt>Rating</dt><dd class="rating">{b['rating']} ({b['reviews']} reviews)</dd>
+<dt>Rating</dt><dd class="rating">{b['rating']} ({b['reviews']:,} reviews)</dd>
 </dl></article>"""
         write(OUT / "biz" / f"{b['slug']}.html", b["name"], body, "../")
 

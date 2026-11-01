@@ -9,9 +9,10 @@ A polite web scraper that turns a business directory into a clean, de-duplicated
 ## What it does
 
 - **Crawls the whole site structure:** category pages → pagination → every business page.
-- **Is polite by default:** reads `robots.txt`, waits between requests, retries with exponential back-off, sends a clear user agent.
+- **Is polite by default:** reads `robots.txt`, waits between requests, honours `Retry-After`, retries with exponential back-off, never fetches the same page twice, sends a clear user agent.
+- **Survives messy sites:** a redesigned or broken page, a dead link, a PDF where a page should be, a pagination loop or a page with no charset is skipped or read correctly and counted, never a crash. If a site returns nothing at all, nothing is written, so the last good results stay published.
 - **Cleans the data:** phone numbers written in any format (`(415) 555-0134`, `415.555.0134`, `+1 415 555 0134`) become one standard (E.164); addresses are split into street, city, state and ZIP.
-- **Merges duplicates:** the same business listed twice, even under a slightly different name, is merged by phone number. The most complete record is kept and all of its categories are combined.
+- **Merges duplicates:** the same business listed twice is merged when the phone number and the name match (`Harbor Grill LLC` = `The Harbor Grill`), or, for a copy with no phone, the name and ZIP. Two different businesses behind one switchboard number stay separate. The most complete record is kept and all of its categories are combined.
 - **Exports** CSV (UTF-8, opens correctly in Excel), a formatted Excel workbook (frozen header, filters, clickable links) and JSON.
 - **Runs on a schedule:** a GitHub Actions job scrapes every morning and publishes the fresh results to the page above.
 - **Shows its work:** the results page lists what the last run did (pages crawled, listings parsed, phones

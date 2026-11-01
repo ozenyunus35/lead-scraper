@@ -39,7 +39,13 @@ jobs:
             --report-url https://ozenyunus35.github.io/lead-scraper/directory/index.html \
             --delay 0.2 --out site/data
       - name: Scrape books.toscrape.com (first 5 pages, 1 request per second)
-        run: python -m scraper books --max-pages 5 --delay 1 --out site/data
+        # If the sandbox is down, publish yesterday's results again rather than an empty table.
+        run: |
+          python -m scraper books --max-pages 5 --delay 1 --out site/data || {
+            for f in books.json books.csv books.xlsx; do
+              curl -fsSL -o "site/data/$f" "https://ozenyunus35.github.io/lead-scraper/data/$f"
+            done
+          }
       - uses: actions/upload-pages-artifact@v5
         with:
           path: site

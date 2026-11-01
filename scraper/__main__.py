@@ -45,6 +45,12 @@ def main(argv: list[str] | None = None) -> dict:
                     r[f] = r[f].replace(base_local, base_public)
         start = a.report_url
 
+    if not rows:
+        # The site was down or changed beyond recognition: writing an empty file would replace
+        # the last good results with nothing. Fail instead, so the schedule keeps the old data.
+        print(f"{label}: no records found at {start} ({fetch.pages} pages fetched, {len(fetch.skipped)} skipped); nothing written")
+        raise SystemExit(1)
+
     out = Path(a.out)
     out.mkdir(parents=True, exist_ok=True)
     meta = {

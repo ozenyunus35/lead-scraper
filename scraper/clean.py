@@ -27,30 +27,61 @@ def squash(s: str) -> str:
     return re.sub(r"\s+", " ", s or "").strip()
 
 
-def key_for(record: dict) -> str:
-    """Same phone number means same business; without a phone, fall back to name + ZIP."""
-    if record.get("phone"):
-        return "tel:" + record["phone"]
-    return "name:" + re.sub(r"[^a-z0-9]", "", record.get("name", "").lower()) + ":" + record.get("zip", "")
+SUFFIXES = {"llc", "inc", "co", "corp", "corporation", "ltd", "the", "and", "company", "pc", "pllc"}
+
+
+def name_tokens(name: str) -> list[str]:
+    """'The Harbor Grill, LLC (Main Office)' -> ['harbor', 'grill']."""
+    name = re.sub(r"\([^)]*\)", " ", (name or "").lower()).replace("&", " and ")
+    return [t for t in re.findall(r"[a-z0-9]+", name) if t not in SUFFIXES]
+
+
+def same_name(a: str, b: str) -> bool:
+    """Close enough to be one business: one name contains the other once suffixes are dropped."""
+    ta, tb = set(name_tokens(a)), set(name_tokens(b))
+    return bool(ta and tb) and (ta <= tb or tb <= ta)
+
+
+def place_key(record: dict) -> str:
+    return "".join(name_tokens(record.get("name", ""))) + ":" + (record.get("zip") or record.get("city", "").lower())
 
 
 def dedupe(records: list[dict], merge_fields: tuple[str, ...] = ("category",)) -> tuple[list[dict], int]:
-    """Merge records that describe the same business. Returns (records, duplicates_removed)."""
-    out: dict[str, dict] = {}
-    for r in records:
-        k = key_for(r)
-        if k not in out:
-            out[k] = dict(r)
-            continue
-        kept = out[k]
+    """Merge records that describe the same business. Returns (records, duplicates_removed).
+
+    The same phone number with a matching name is one business (a shared switchboard with a
+    different name is not). A listing without a phone joins the listing with the same name and
+    ZIP, with or without a phone."""
+    groups: list[dict] = []
+    by_phone: dict[str, list[dict]] = {}
+    by_place: dict[str, dict] = {}
+
+    def merge(kept: dict, r: dict) -> None:
         filled = lambda d: sum(1 for v in d.values() if v not in ("", None))
-        if filled(r) > filled(kept):  # keep the more complete listing as the base
-            kept, r = dict(r), kept
-            out[k] = kept
+        base, extra = (r, dict(kept)) if filled(r) > filled(kept) else (dict(kept), r)
         for f in merge_fields:
-            values = [v for v in (kept.get(f, "") + "; " + r.get(f, "")).split("; ") if v]
-            kept[f] = "; ".join(dict.fromkeys(values))
-        for f, v in r.items():  # fill gaps from the duplicate
-            if v and not kept.get(f):
-                kept[f] = v
-    return list(out.values()), len(records) - len(out)
+            values = [v for v in (base.get(f, "") + "; " + extra.get(f, "")).split("; ") if v]
+            base[f] = "; ".join(dict.fromkeys(values))
+        for f, v in extra.items():  # fill gaps from the duplicate
+            if v not in ("", None) and base.get(f) in ("", None):
+                base[f] = v
+        kept.clear()
+        kept.update(base)
+
+    # Listings with a phone first, so a phone-less copy can find its match whatever the order.
+    for r in sorted(records, key=lambda r: not r.get("phone")):
+        r = dict(r)
+        match = None
+        if r.get("phone"):
+            match = next((g for g in by_phone.get(r["phone"], []) if same_name(g["name"], r.get("name", ""))), None)
+        else:
+            match = by_place.get(place_key(r))
+        if match is None:
+            groups.append(r)
+            match = r
+            if r.get("phone"):
+                by_phone.setdefault(r["phone"], []).append(match)
+        else:
+            merge(match, r)
+        by_place.setdefault(place_key(r), match)
+    return groups, len(records) - len(groups)
