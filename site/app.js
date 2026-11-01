@@ -181,7 +181,9 @@ function render() {
 
   const rows = data.rows;
   // Gaps first: fields that are filled in every record are listed in one line.
-  const filled = data.fields.map((f) => [f, Math.round((rows.filter((r) => r[f] !== "" && r[f] !== null && r[f] !== undefined).length / Math.max(1, rows.length)) * 100)]);
+  // Fields a buyer of the list cares about; derived ones (status, score, change notes) are left out.
+  const shownFields = data.fields.filter((f) => !["score", "email_status", "other_emails", "other_phones", "site_status", "change", "changes", "first_seen", "phone_display", "source_url", "domain"].includes(f));
+  const filled = shownFields.map((f) => [f, Math.round((rows.filter((r) => r[f] !== "" && r[f] !== null && r[f] !== undefined).length / Math.max(1, rows.length)) * 100)]);
   const complete = filled.filter(([, pct]) => pct === 100).map(([f]) => LABELS[f] || f);
   $("coverage").innerHTML =
     filled
