@@ -27,6 +27,8 @@ A polite web scraper that turns a business directory into a clean, de-duplicated
 | Results page | Demo directory being scraped |
 | --- | --- |
 | ![Results](docs/results.png) | ![Directory](docs/directory.png) |
+| **In Turkish** | **Command palette** |
+| ![Results page in Turkish](docs/turkish.png) | ![Command palette searching for dentists](docs/palette.png) |
 
 ## Data sources
 
