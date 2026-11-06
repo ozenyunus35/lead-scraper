@@ -21,6 +21,8 @@ A polite web scraper that turns a business directory into a clean, de-duplicated
 - **Runs on a schedule:** a GitHub Actions job scrapes every morning and publishes the fresh results to the page above.
 - **Shows its work:** the results page lists what the last run did (pages crawled, listings parsed, phones
   normalised, duplicates merged), how complete each field is, and the full record behind every row.
+- **Results page in English and Turkish**, with a ⌘K command palette (jump to any business, filter by category or lead type,
+  download, switch theme or language) and filters kept in the address, so a link opens the same view.
 
 | Results page | Demo directory being scraped |
 | --- | --- |

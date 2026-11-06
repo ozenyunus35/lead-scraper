@@ -1,5 +1,64 @@
 "use strict";
 
+// English is the key; Turkish texts live in tr.js-style table below. {name} placeholders are filled in.
+const TR = window.LEADS_TR || {};
+window.__i18nMisses = new Set();
+let lang = (() => {
+  const q = new URLSearchParams(location.search).get("lang");
+  if (q === "tr" || q === "en") {
+    try {
+      localStorage.setItem("leads:lang", q);
+    } catch {}
+    return q;
+  }
+  try {
+    const saved = localStorage.getItem("leads:lang");
+    if (saved === "tr" || saved === "en") return saved;
+  } catch {}
+  return /^tr\b/i.test(navigator.language) ? "tr" : "en";
+})();
+function t(s, vars) {
+  let out = s;
+  if (lang === "tr") {
+    if (TR[s] !== undefined) out = TR[s];
+    else if (/\p{L}/u.test(s)) window.__i18nMisses.add(s);
+  }
+  if (vars) for (const [k, v] of Object.entries(vars)) out = out.split(`{${k}}`).join(String(v));
+  return out;
+}
+/** "rating 4.3 → 4.2; phone … → …" with the field names in the interface language. */
+const changesText = (s) =>
+  String(s)
+    .split("; ")
+    .map((d) => d.replace(/^(\w+)/, (w) => t(w)))
+    .join("; ");
+const num = (n) => Number(n).toLocaleString(lang === "tr" ? "tr-TR" : "en-US");
+const dec1 = (n) => Number(n).toLocaleString(lang === "tr" ? "tr-TR" : "en-US", { minimumFractionDigits: 1, maximumFractionDigits: 1 });
+
+/** The page's own HTML text, swapped for the chosen language. The English original is kept on the element. */
+function applyStatic() {
+  document.documentElement.lang = lang;
+  document.querySelectorAll("[data-i18n]").forEach((el) => {
+    el.dataset.en ??= el.textContent;
+    el.textContent = t(el.dataset.en);
+  });
+  document.querySelectorAll("[data-i18n-html]").forEach((el) => {
+    el.dataset.en ??= el.innerHTML.trim();
+    el.innerHTML = lang === "tr" && TR[el.dataset.en] ? TR[el.dataset.en] : el.dataset.en;
+  });
+  document.querySelectorAll("[data-i18n-placeholder]").forEach((el) => {
+    el.dataset.enPlaceholder ??= el.placeholder;
+    el.placeholder = t(el.dataset.enPlaceholder);
+  });
+  document.querySelectorAll("[data-i18n-aria]").forEach((el) => {
+    el.dataset.enAria ??= el.getAttribute("aria-label");
+    if (el.id !== "lang") el.setAttribute("aria-label", t(el.dataset.enAria));
+  });
+  $("lang-code").textContent = lang === "tr" ? "EN" : "TR";
+  $("lang").setAttribute("aria-label", lang === "tr" ? "Switch to English" : "Türkçeye geç");
+  $("lang").title = $("lang").getAttribute("aria-label");
+}
+
 const LABELS = {
   name: "Business", category: "Category", phone: "Phone (E.164)", phone_display: "Phone", street: "Street", city: "City", state: "State", zip: "ZIP",
   website: "Website", domain: "Domain", email: "Email", rating: "Rating", reviews: "Reviews", source_url: "Source page",
@@ -18,7 +77,7 @@ const SETS = {
       {
         label: "Leads", all: "All leads",
         values: () => ["personal", "email", "social", "score70", "new", "changed"],
-        text: (v) => ({ personal: "Named person's email", email: "Has an email", social: "Has social profiles", score70: "Score 70+", new: "New since last run", changed: "Changed since last run" })[v],
+        text: (v) => t({ personal: "Named person's email", email: "Has an email", social: "Has social profiles", score70: "Score 70+", new: "New since last run", changed: "Changed since last run" }[v]),
         match: (r, v) => ({ personal: r.email_status === "personal", email: !!r.email, social: SOCIALS.some((n) => r[n]), score70: r.score >= 70, new: r.change === "new", changed: r.change === "changed" })[v],
       },
     ],
@@ -26,28 +85,28 @@ const SETS = {
     breakdown: { title: "By category", key: (r) => categories(r), filter: 0 },
     search: ["name", "category", "city", "street", "phone_display", "website", "email", "other_emails"],
     pipeline: (m, rows) => [
-      ["Crawl", m.pages_fetched, "pages, robots.txt respected"],
-      ["Clean", rows.filter((r) => r.phone).length, "phones in E.164"],
-      ["Merge", m.duplicates_removed, "duplicates merged"],
-      ["Enrich", rows.filter((r) => r.email).length, `emails from ${m.sites_visited ?? 0} websites`],
-      ["Score", rows.filter((r) => r.score >= 70).length, "leads scored 70+"],
+      ["Crawl", m.pages_fetched, t("pages, robots.txt respected")],
+      ["Clean", rows.filter((r) => r.phone).length, t("phones in E.164")],
+      ["Merge", m.duplicates_removed, t("duplicates merged")],
+      ["Enrich", rows.filter((r) => r.email).length, t("emails from {n} websites", { n: m.sites_visited ?? 0 })],
+      ["Score", rows.filter((r) => r.score >= 70).length, t("leads scored 70+")],
     ],
   },
   books: {
     sorts: [],
     columns: ["title", "price_gbp", "rating", "in_stock", "url"],
     filters: [
-      { label: "Rating", all: "Any rating", values: () => ["5", "4", "3", "2", "1"], text: (v) => `${v} stars`, match: (r, v) => String(r.rating) === v },
-      { label: "Stock", all: "Any stock", values: () => ["yes", "no"], text: (v) => (v === "yes" ? "In stock" : "Out of stock"), match: (r, v) => r.in_stock === (v === "yes") },
+      { label: "Rating", all: "Any rating", values: () => ["5", "4", "3", "2", "1"], text: (v) => t("{n} stars", { n: v }), match: (r, v) => String(r.rating) === v },
+      { label: "Stock", all: "Any stock", values: () => ["yes", "no"], text: (v) => (v === "yes" ? t("In stock") : t("Out of stock")), match: (r, v) => r.in_stock === (v === "yes") },
     ],
-    breakdown: { title: "By rating", key: (r) => [`${r.rating} stars`], filter: null },
+    breakdown: { title: "By rating", key: (r) => [t("{n} stars", { n: r.rating })], filter: null },
     search: ["title"],
     pipeline: (m, rows) => [
-      ["Crawl", m.pages_fetched, "pages, 1 request per second"],
-      ["Parse", m.records + m.duplicates_removed, "books found"],
-      ["Clean", rows.filter((r) => typeof r.price_gbp === "number").length, "prices as numbers"],
-      ["Merge", m.duplicates_removed, "duplicates merged"],
-      ["Export", m.records, `records in ${m.duration_s}s`],
+      ["Crawl", m.pages_fetched, t("pages, 1 request per second")],
+      ["Parse", m.records + m.duplicates_removed, t("books found")],
+      ["Clean", rows.filter((r) => typeof r.price_gbp === "number").length, t("prices as numbers")],
+      ["Merge", m.duplicates_removed, t("duplicates merged")],
+      ["Export", m.records, t("records in {n}s", { n: m.duration_s })],
     ],
   },
 };
@@ -79,10 +138,10 @@ const host = (u) => String(u).replace(/^https?:\/\/(www\.)?/, "").replace(/\/$/,
 
 function ago(iso) {
   const s = Math.max(0, (Date.now() - new Date(iso).getTime()) / 1000);
-  if (s < 90) return "just now";
-  if (s < 5400) return `${Math.round(s / 60)} min ago`;
-  if (s < 129600) return `${Math.round(s / 3600)} h ago`;
-  return `${Math.round(s / 86400)} days ago`;
+  if (s < 90) return t("just now");
+  if (s < 5400) return t("{n} min ago", { n: Math.round(s / 60) });
+  if (s < 129600) return t("{n} h ago", { n: Math.round(s / 3600) });
+  return t("{n} days ago", { n: Math.round(s / 86400) });
 }
 
 /** The workflow runs daily at 06:17 UTC. */
@@ -91,7 +150,7 @@ function nextRun() {
   const next = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate(), 6, 17));
   if (next <= now) next.setUTCDate(next.getUTCDate() + 1);
   const h = Math.round((next - now) / 3_600_000);
-  return h < 1 ? "next run within the hour" : `next run in ${h} h`;
+  return h < 1 ? t("next run within the hour") : t("next run in {n} h", { n: h });
 }
 
 async function load(set) {
@@ -103,7 +162,7 @@ async function load(set) {
   return cache[set];
 }
 
-const stars = (n) => `<span class="stars" aria-label="${n} out of 5">${"★".repeat(Math.round(n))}<i>${"★".repeat(5 - Math.round(n))}</i></span>`;
+const stars = (n) => `<span class="stars" aria-label="${t("{n} out of 5", { n })}">${"★".repeat(Math.round(n))}<i>${"★".repeat(5 - Math.round(n))}</i></span>`;
 
 function cell(field, r) {
   const v = r[field];
@@ -114,30 +173,30 @@ function cell(field, r) {
       return `${esc(v)}<span class="sub">${esc(r.street)}, ${esc(r.city)}</span>`;
     case "category": {
       const c = categories(r);
-      return `<span class="tags">${c.map((x) => `<span class="tag">${esc(x)}</span>`).join("")}${c.length > 1 ? '<span class="tag merged" title="Listed under several categories, merged into one record">merged</span>' : ""}</span>`;
+      return `<span class="tags">${c.map((x) => `<span class="tag">${esc(x)}</span>`).join("")}${c.length > 1 ? `<span class="tag merged" title="${t("Listed under several categories, merged into one record")}">${t("merged")}</span>` : ""}</span>`;
     }
     case "phone_display":
       return `${esc(v)}<span class="sub">${esc(r.phone)}</span>`;
     case "website":
       return `<a href="${esc(v)}" rel="nofollow noopener" target="_blank">${esc(host(v))}</a>${r.email ? `<span class="sub">${esc(r.email)}</span>` : ""}`;
     case "email": {
-      const nets = SOCIALS.filter((n) => r[n]).map((n) => `<a class="net" href="${esc(r[n])}" rel="nofollow noopener" target="_blank">${LABELS[n]}</a>`).join("");
-      const status = r.email_status ? `<span class="tag st-${esc(r.email_status)}">${esc(STATUS[r.email_status] || r.email_status)}</span>` : "";
+      const nets = SOCIALS.filter((n) => r[n]).map((n) => `<a class="net" href="${esc(r[n])}" rel="nofollow noopener" target="_blank">${t(LABELS[n])}</a>`).join("");
+      const status = r.email_status ? `<span class="tag st-${esc(r.email_status)}">${esc(t(STATUS[r.email_status] || r.email_status))}</span>` : "";
       return `<span class="mail">${esc(v)}</span><span class="sub">${status}${nets}</span>`;
     }
     case "score": {
       const level = v >= 70 ? "hi" : v >= 45 ? "mid" : "lo";
-      const news = r.change ? `<span class="tag ch-${esc(r.change)}" title="${esc(r.changes || "First seen in this run")}">${r.change === "new" ? "new" : "changed"}</span>` : "";
-      return `<span class="score ${level}">${esc(v)}</span>${news}<span class="sub">${stars(r.rating)} ${Number(r.rating || 0).toFixed(1)} · ${esc(r.reviews)} reviews</span>`;
+      const news = r.change ? `<span class="tag ch-${esc(r.change)}" title="${esc(r.changes ? changesText(r.changes) : t("First seen in this run"))}">${r.change === "new" ? t("new") : t("changed")}</span>` : "";
+      return `<span class="score ${level}">${esc(v)}</span>${news}<span class="sub">${stars(r.rating)} ${dec1(r.rating || 0)} · ${t("{n} reviews", { n: esc(r.reviews) })}</span>`;
     }
     case "url":
-      return `<a href="${esc(v)}" rel="nofollow noopener" target="_blank">Open</a>`;
+      return `<a href="${esc(v)}" rel="nofollow noopener" target="_blank">${t("Open")}</a>`;
     case "rating":
-      return current === "books" ? stars(v) : `${stars(v)} ${Number(v).toFixed(1)}<span class="sub">${r.reviews} reviews</span>`;
+      return current === "books" ? stars(v) : `${stars(v)} ${dec1(v)}<span class="sub">${t("{n} reviews", { n: r.reviews })}</span>`;
     case "in_stock":
-      return v ? "Yes" : "No";
+      return v ? t("Yes") : t("No");
     case "price_gbp":
-      return Number(v).toFixed(2);
+      return Number(v).toLocaleString(lang === "tr" ? "tr-TR" : "en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
     default:
       return esc(v);
   }
@@ -146,15 +205,15 @@ function cell(field, r) {
 function render() {
   const m = data.meta;
   const set = SETS[current];
-  $("title").textContent = m.dataset;
-  $("meta").innerHTML = `Source <a href="${esc(m.source)}">${esc(host(m.source))}</a> · last run ${ago(m.run_at)} · ${nextRun()}`;
+  $("title").textContent = t(m.dataset);
+  $("meta").innerHTML = `${t("Source")} <a href="${esc(m.source)}">${esc(host(m.source))}</a> · ${t("last run {time}", { time: ago(m.run_at) })} · ${nextRun()}`;
   $("pipeline").innerHTML = set
     .pipeline(m, data.rows)
-    .map(([step, n, label]) => `<li><span class="step"><svg viewBox="0 0 24 24" aria-hidden="true">${ICONS[step]}</svg>${step}</span><b>${n.toLocaleString("en-US")}</b><small>${esc(label)}</small></li>`)
+    .map(([step, n, label]) => `<li><span class="step"><svg viewBox="0 0 24 24" aria-hidden="true">${ICONS[step]}</svg>${t(step)}</span><b>${num(n)}</b><small>${esc(label)}</small></li>`)
     .join("");
   $("downloads").innerHTML =
     ["xlsx", "csv", "json"].map((ext, i) => `<a class="btn${i === 0 ? " primary" : ""}" href="data/${current}.${ext}" download>${ext === "xlsx" ? "Excel" : ext.toUpperCase()}</a>`).join("") +
-    (current === "directory" ? '<button type="button" class="btn" id="crm">CRM import (filtered)</button>' : "");
+    (current === "directory" ? `<button type="button" class="btn" id="crm">${t("CRM import (filtered)")}</button>` : "");
   $("crm-note").hidden = current !== "directory";
 
   // What changed since the last run.
@@ -163,20 +222,20 @@ function render() {
   if (ch) {
     const closed = (ch.closed_names || []).map((n) => `<li>${esc(n)}</li>`).join("");
     $("changes").innerHTML = ch.compared
-      ? `<p class="deltas"><button type="button" data-lead="new"><b>${ch.new}</b> new</button><button type="button" data-lead="changed"><b>${ch.changed}</b> changed</button><span><b>${ch.closed}</b> closed</span></p>` +
-        (closed ? `<p class="faint">No longer listed:</p><ul class="closed">${closed}</ul>` : "")
-      : '<p class="faint">This is the first run with change tracking; tomorrow\'s run will list what opened, closed or changed.</p>';
+      ? `<p class="deltas"><button type="button" data-lead="new"><b>${ch.new}</b> ${t("new")}</button><button type="button" data-lead="changed"><b>${ch.changed}</b> ${t("changed")}</button><span><b>${ch.closed}</b> ${t("closed")}</span></p>` +
+        (closed ? `<p class="faint">${t("No longer listed:")}</p><ul class="closed">${closed}</ul>` : "")
+      : `<p class="faint">${t("This is the first run with change tracking; tomorrow's run will list what opened, closed or changed.")}</p>`;
   }
 
   $("sort").hidden = !set.sorts.length;
-  $("sort").innerHTML = set.sorts.map(([k, t]) => `<option value="${k}">${t}</option>`).join("");
+  $("sort").innerHTML = set.sorts.map(([k, label]) => `<option value="${k}">${t(label)}</option>`).join("");
 
   ["f1", "f2", "f3"].forEach((id, i) => {
     const f = set.filters[i], el = $(id);
     el.hidden = !f;
     if (!f) return;
-    el.setAttribute("aria-label", f.label);
-    el.innerHTML = `<option value="">${f.all}</option>` + f.values(data.rows).map((v) => `<option value="${esc(v)}">${esc(f.text ? f.text(v) : v)}</option>`).join("");
+    el.setAttribute("aria-label", t(f.label));
+    el.innerHTML = `<option value="">${t(f.all)}</option>` + f.values(data.rows).map((v) => `<option value="${esc(v)}">${esc(f.text ? f.text(v) : v)}</option>`).join("");
   });
 
   const rows = data.rows;
@@ -184,19 +243,19 @@ function render() {
   // Fields a buyer of the list cares about; derived ones (status, score, change notes) are left out.
   const shownFields = data.fields.filter((f) => !["score", "email_status", "other_emails", "other_phones", "site_status", "change", "changes", "first_seen", "phone_display", "source_url", "domain"].includes(f));
   const filled = shownFields.map((f) => [f, Math.round((rows.filter((r) => r[f] !== "" && r[f] !== null && r[f] !== undefined).length / Math.max(1, rows.length)) * 100)]);
-  const complete = filled.filter(([, pct]) => pct === 100).map(([f]) => LABELS[f] || f);
+  const complete = filled.filter(([, pct]) => pct === 100).map(([f]) => t(LABELS[f] || f));
   $("coverage").innerHTML =
     filled
       .filter(([, pct]) => pct < 100)
       .sort((a, b) => a[1] - b[1])
-      .map(([f, pct]) => `<li><span>${esc(LABELS[f] || f)}</span><em>${pct}%</em><span class="bar" aria-hidden="true"><i style="width:${pct}%"></i></span></li>`)
-      .join("") + (complete.length ? `<li class="complete"><span>Complete in every record: ${esc(complete.join(", "))}</span></li>` : "");
+      .map(([f, pct]) => `<li><span>${esc(t(LABELS[f] || f))}</span><em>${lang === "tr" ? "%" + pct : pct + "%"}</em><span class="bar" aria-hidden="true"><i style="width:${pct}%"></i></span></li>`)
+      .join("") + (complete.length ? `<li class="complete"><span>${t("Complete in every record: {fields}", { fields: esc(complete.join(", ")) })}</span></li>` : "");
 
   const counts = {};
   rows.forEach((r) => set.breakdown.key(r).forEach((k) => (counts[k] = (counts[k] || 0) + 1)));
   const top = Object.entries(counts).sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]));
   const max = Math.max(1, ...top.map(([, n]) => n));
-  $("breakdown-title").textContent = set.breakdown.title;
+  $("breakdown-title").textContent = t(set.breakdown.title);
   $("breakdown").innerHTML = top
     .map(([k, n]) => {
       const label = set.breakdown.filter === null ? esc(k) : `<button type="button" data-filter="${esc(k)}">${esc(k)}</button>`;
@@ -218,12 +277,13 @@ function draw() {
   else if (by === "name") visible.sort((a, b) => String(a.name).localeCompare(b.name));
   else if (by === "first_seen") visible.sort((a, b) => String(b.first_seen).localeCompare(String(a.first_seen)) || (b.change === "new") - (a.change === "new"));
   const shown = visible.slice(0, 200);
-  const num = (f) => (f === "price_gbp" ? ' class="num"' : "");
+  const numCls = (f) => (f === "price_gbp" ? ' class="num"' : "");
   $("table").innerHTML =
-    `<thead><tr>${set.columns.map((f) => `<th scope="col"${num(f)}>${LABELS[f] || f}</th>`).join("")}</tr></thead>` +
-    `<tbody>${shown.map((r, i) => `<tr data-i="${i}" tabindex="0">${set.columns.map((f) => `<td${f === "category" ? ' class="cat"' : num(f)}>${cell(f, r)}</td>`).join("")}</tr>`).join("")}</tbody>`;
-  $("count").textContent = `${visible.length} of ${data.rows.length} records`;
-  $("note").textContent = visible.length === 0 ? "No records match these filters." : visible.length > shown.length ? `Showing ${shown.length} of ${visible.length}. The downloads contain every record.` : "Click a record to see every field.";
+    `<thead><tr>${set.columns.map((f) => `<th scope="col"${numCls(f)}>${t(LABELS[f] || f)}</th>`).join("")}</tr></thead>` +
+    `<tbody>${shown.map((r, i) => `<tr data-i="${i}" tabindex="0">${set.columns.map((f) => `<td${f === "category" ? ' class="cat"' : numCls(f)}>${cell(f, r)}</td>`).join("")}</tr>`).join("")}</tbody>`;
+  $("count").textContent = t("{n} of {total} records", { n: num(visible.length), total: num(data.rows.length) });
+  $("note").textContent = visible.length === 0 ? t("No records match these filters.") : visible.length > shown.length ? t("Showing {n} of {total}. The downloads contain every record.", { n: shown.length, total: visible.length }) : t("Click a record to see every field.");
+  saveHash();
 }
 
 function openRecord(r) {
@@ -232,32 +292,36 @@ function openRecord(r) {
   $("record-body").innerHTML = fields
     .map((f) => {
       let v = r[f];
-      if (v === "" || v === null || v === undefined) v = '<span class="empty">Not listed</span>';
+      if (v === "" || v === null || v === undefined) v = `<span class="empty">${t("Not listed")}</span>`;
       else if (/url|website|linkedin|facebook|instagram|^x$/.test(f)) v = `<a href="${esc(v)}" rel="nofollow noopener" target="_blank">${esc(host(v))}</a>`;
-      else if (f === "email_status") v = esc(STATUS[v] || v);
+      else if (f === "email_status") v = esc(t(STATUS[v] || v));
       else if (f === "phone") v = `<code>${esc(v)}</code>`;
-      else if (f === "in_stock") v = v ? "Yes" : "No";
+      else if (f === "in_stock") v = v ? t("Yes") : t("No");
       else v = esc(v);
-      return `<dt>${esc(LABELS[f] || f)}</dt><dd>${v}</dd>`;
+      return `<dt>${esc(t(LABELS[f] || f))}</dt><dd>${v}</dd>`;
     })
     .join("");
   $("record").showModal();
 }
 
-async function show(set) {
+async function show(set, restore) {
   current = set;
-  document.querySelectorAll("[role=tab]").forEach((t) => t.setAttribute("aria-selected", String(t.dataset.set === set)));
+  document.querySelectorAll("[role=tab]").forEach((tab) => tab.setAttribute("aria-selected", String(tab.dataset.set === set)));
   $("q").value = "";
   try {
     data = await load(set);
     render();
+    if (restore) {
+      for (const id of ["q", "f1", "f2", "f3", "sort"]) if (restore.has(id)) $(id).value = restore.get(id);
+      draw();
+    }
   } catch {
     $("table").innerHTML = "";
-    $("note").textContent = "Could not load the latest results. Please refresh in a moment.";
+    $("note").textContent = t("Could not load the latest results. Please refresh in a moment.");
   }
 }
 
-document.querySelectorAll("[role=tab]").forEach((t) => t.addEventListener("click", () => show(t.dataset.set)));
+document.querySelectorAll("[role=tab]").forEach((tab) => tab.addEventListener("click", () => show(tab.dataset.set)));
 $("q").addEventListener("input", draw);
 $("f1").addEventListener("change", draw);
 $("f2").addEventListener("change", draw);
@@ -308,11 +372,136 @@ $("theme").addEventListener("click", () => {
   } catch {}
 });
 
+/** The view lives in the address, so a copied link opens the same dataset and filters. */
+function saveHash() {
+  const p = new URLSearchParams();
+  if (current !== "directory") p.set("set", current);
+  for (const id of ["q", "f1", "f2", "f3"]) if ($(id).value) p.set(id, $(id).value);
+  if ($("sort").value && $("sort").selectedIndex > 0) p.set("sort", $("sort").value);
+  const hash = p.toString();
+  try {
+    history.replaceState(null, "", `${location.pathname}${location.search}${hash ? `#${hash}` : ""}`);
+  } catch {}
+}
+
+$("lang").addEventListener("click", () => {
+  lang = lang === "tr" ? "en" : "tr";
+  try {
+    localStorage.setItem("leads:lang", lang);
+  } catch {}
+  applyStatic();
+  if (data) {
+    const keep = Object.fromEntries(["q", "f1", "f2", "f3", "sort"].map((id) => [id, $(id).value]));
+    render();
+    for (const [id, v] of Object.entries(keep)) $(id).value = v;
+    draw();
+  }
+});
+
+// ⌘K: jump to a business, apply a filter, download, or switch theme and language.
+let palItems = [];
+let palIndex = 0;
+function paletteCommands() {
+  const cmds = [];
+  const act = t("Actions");
+  cmds.push({ group: t("Datasets"), label: t("Business leads"), run: () => show("directory") });
+  cmds.push({ group: t("Datasets"), label: t("Books (sandbox)"), run: () => show("books") });
+  if (data && current === "directory") {
+    const lead = (v) => () => {
+      $("f3").value = v;
+      draw();
+    };
+    for (const v of SETS.directory.filters[2].values()) cmds.push({ group: t("Filters"), label: SETS.directory.filters[2].text(v), run: lead(v) });
+    for (const c of SETS.directory.filters[0].values(data.rows))
+      cmds.push({ group: t("Categories"), label: c, run: () => {
+        $("f1").value = c;
+        draw();
+      } });
+    for (const r of data.rows) cmds.push({ group: t("Businesses"), label: r.name, hint: `${r.city} · ${r.phone_display || ""}`, keywords: `${r.category} ${r.email || ""} ${r.website || ""}`, run: () => openRecord(r) });
+  }
+  for (const ext of ["xlsx", "csv", "json"]) cmds.push({ group: act, label: t("Download {format}", { format: ext === "xlsx" ? "Excel" : ext.toUpperCase() }), run: () => document.querySelector(`#downloads a[href$=".${ext}"]`)?.click() });
+  if (current === "directory") cmds.push({ group: act, label: t("CRM import (filtered)"), run: () => $("crm")?.click() });
+  cmds.push({ group: act, label: t("Clear filters"), run: () => {
+    for (const id of ["q", "f1", "f2", "f3"]) $(id).value = "";
+    draw();
+  } });
+  cmds.push({ group: act, label: t("Switch theme"), run: () => $("theme").click() });
+  cmds.push({ group: act, label: lang === "tr" ? "Switch to English" : "Türkçeye geç", run: () => $("lang").click() });
+  cmds.push({ group: act, label: t("Source code on GitHub"), run: () => window.open("https://github.com/ozenyunus35/lead-scraper", "_blank", "noopener") });
+  return cmds;
+}
+const fold = (s) => String(s).toLocaleLowerCase("tr").normalize("NFD").replace(/\p{M}/gu, "").replace(/ı/g, "i");
+function drawPalette() {
+  const words = fold($("pal-q").value.trim()).split(/\s+/).filter(Boolean);
+  const all = paletteCommands();
+  palItems = (words.length ? all.filter((c) => words.every((w) => fold(`${c.label} ${c.group} ${c.hint || ""} ${c.keywords || ""}`).includes(w))) : all.filter((c) => c.group !== t("Businesses") && c.group !== t("Categories"))).slice(0, 60);
+  palIndex = Math.min(palIndex, Math.max(0, palItems.length - 1));
+  let last = "";
+  $("pal-list").innerHTML = palItems.length
+    ? palItems
+        .map((c, i) => {
+          const head = c.group !== last ? `<li class="pal-group" role="presentation">${esc(c.group)}</li>` : "";
+          last = c.group;
+          return `${head}<li role="option" id="pal-${i}" data-i="${i}" aria-selected="${i === palIndex}"><span>${esc(c.label)}</span>${c.hint ? `<small>${esc(c.hint)}</small>` : ""}</li>`;
+        })
+        .join("")
+    : `<li class="pal-empty">${t("No results")}</li>`;
+  $("pal-q").setAttribute("aria-activedescendant", `pal-${palIndex}`);
+  document.getElementById(`pal-${palIndex}`)?.scrollIntoView({ block: "nearest" });
+}
+function openPalette() {
+  $("pal-q").value = "";
+  palIndex = 0;
+  drawPalette();
+  if (!$("palette").open) $("palette").showModal();
+  $("pal-q").focus();
+}
+function runPalette(i) {
+  const c = palItems[i];
+  if (!c) return;
+  $("palette").close();
+  c.run();
+}
+$("open-palette").addEventListener("click", openPalette);
+window.addEventListener("keydown", (e) => {
+  if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "k") {
+    e.preventDefault();
+    openPalette();
+  }
+});
+$("pal-q").addEventListener("input", () => {
+  palIndex = 0;
+  drawPalette();
+});
+$("pal-q").addEventListener("keydown", (e) => {
+  if (e.key === "ArrowDown" || e.key === "ArrowUp") {
+    e.preventDefault();
+    palIndex = Math.max(0, Math.min(palItems.length - 1, palIndex + (e.key === "ArrowDown" ? 1 : -1)));
+    drawPalette();
+  } else if (e.key === "Enter") {
+    e.preventDefault();
+    runPalette(palIndex);
+  }
+});
+$("pal-list").addEventListener("click", (e) => {
+  const li = e.target.closest("[data-i]");
+  if (li) runPalette(Number(li.dataset.i));
+});
+$("palette").addEventListener("click", (e) => e.target === $("palette") && $("palette").close());
+
+applyStatic();
+
 load("directory")
   .then((d) => {
     const hours = (Date.now() - new Date(d.meta.run_at).getTime()) / 3_600_000;
-    $("run-text").textContent = `Last run ${ago(d.meta.run_at)} · runs daily at 06:17 UTC`;
+    $("run-text").textContent = t("Last run {time} · runs daily at 06:17 UTC", { time: ago(d.meta.run_at) });
     $("run").classList.add(hours > 36 ? "stale" : "ok");
   })
-  .catch(() => ($("run-text").textContent = "Latest run unavailable"));
-show("directory");
+  .catch(() => ($("run-text").textContent = t("Latest run unavailable")));
+// A pasted link with a different # opens that view without a reload.
+window.addEventListener("hashchange", () => {
+  const p = new URLSearchParams(location.hash.slice(1));
+  show(p.get("set") === "books" ? "books" : "directory", p);
+});
+const shared = new URLSearchParams(location.hash.slice(1));
+show(shared.get("set") === "books" ? "books" : "directory", shared.size ? shared : null);

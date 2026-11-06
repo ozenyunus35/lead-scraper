@@ -31,7 +31,7 @@ def base_url(tmp_path_factory):
         yield os.environ["BASE_URL"]
         return
     root = tmp_path_factory.mktemp("site")
-    for name in ("index.html", "app.js", "style.css"):
+    for name in ("index.html", "tr.js", "app.js", "style.css"):
         shutil.copy(ROOT / "site" / name, root / name)
     shutil.copytree(ROOT / "tests" / "fixtures" / "site-data", root / "data")
     server = ThreadingHTTPServer(("127.0.0.1", 0), functools.partial(SimpleHTTPRequestHandler, directory=str(root)))
@@ -151,3 +151,41 @@ def test_lead_filters_sorting_changes_and_crm_export(page):
     lines = text.strip().splitlines()
     assert lines[0].startswith("Company name,Company Domain Name,Phone Number,Email")
     assert len(lines) - 1 == page.locator("#table tbody tr").count()
+
+
+def test_turkish_interface(page, base_url):
+    page.goto(base_url + "?lang=tr")
+    expect(page.get_by_role("heading", level=1)).to_have_text("İşletme adayları")
+    expect(page.get_by_role("list", name="Son çalıştırmanın yaptıkları")).to_contain_text("Tarama")
+    expect(page.locator("#count")).to_contain_text("kayıttan")
+    page.get_by_label("Adaylar").select_option("personal")
+    expect(page.locator("#table tbody tr").first).to_contain_text("Kişiye ait")
+    page.locator("#table tbody tr").first.click()
+    dialog = page.get_by_role("dialog")
+    expect(dialog).to_contain_text("Posta kodu")
+    dialog.get_by_role("button", name="Kapat").click()
+    page.get_by_role("tab", name="Kitaplar (deneme sitesi)").click()
+    expect(page.get_by_role("heading", level=1)).to_have_text("Kitaplar")
+    assert page.evaluate("[...window.__i18nMisses]") == []
+    # The choice is kept without the ?lang link, and the switch goes back to English.
+    page.goto(base_url)
+    expect(page.get_by_role("heading", level=1)).to_have_text("İşletme adayları")
+    page.get_by_role("button", name="Switch to English").click()
+    expect(page.get_by_role("heading", level=1)).to_have_text("Business leads")
+
+
+def test_command_palette_opens_a_business(page):
+    name = page.locator("#table tbody tr").nth(3).locator("td").first.evaluate("td => td.firstChild.textContent")
+    page.get_by_role("button", name="Search and commands").click()
+    box = page.get_by_role("combobox", name="Search commands")
+    box.fill(name)
+    box.press("Enter")
+    expect(page.locator("#record-title")).to_have_text(name)
+
+
+def test_shared_link_restores_the_filters(page, base_url):
+    page.goto(base_url + "#f3=personal&sort=score")
+    expect(page.get_by_label("Leads")).to_have_value("personal")
+    expect(page.get_by_label("Sort")).to_have_value("score")
+    page.get_by_label("Leads").select_option("email")
+    assert "f3=email" in page.evaluate("location.hash")
